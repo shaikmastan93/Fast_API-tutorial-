@@ -1,60 +1,53 @@
-from fastapi import FastAPI,Form,UploadFile,File
-from pydantic import BaseModel,EmailStr,Field
-from typing import List
+from sqlalchemy import Column, Integer, String, create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+from fastapi import FastAPI, Depends
+from pydantic import BaseModel, EmailStr
 
+# -------------------- Database Setup --------------------
+DATABASE_URL = "sqlite:///./mydatabase.db"
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+Base = declarative_base()
+
+# -------------------- SQLAlchemy Model --------------------
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=False)
+
+Base.metadata.create_all(bind=engine)
+
+# -------------------- FastAPI Init --------------------
 app = FastAPI()
 
-# <<<<<<<<<--------------------------Data Validation in FastAPI with Pydantic------------------------>>>>>>>
-# class User(BaseModel):
-#     username:str
-#     email:str
-#     age:int
+# Dependency to get DB session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
+# -------------------- Pydantic Schemas --------------------
+class UserCreate(BaseModel):
+    name: str
+    email: EmailStr
 
-# @app.post("/register/")
-# async def reg_user(user:User):
-#     return user
-# <<<<<<<<<--------------------------Data Validation in FastAPI with Pydantic------------------------>>>>>>>
-#Regular expressions
-#Custom validators
+class UserOut(BaseModel):
+    id: int
+    name: str
+    email: EmailStr
 
-from fastapi import FastAPI
-from pydantic import BaseModel, EmailStr, Field
+    class Config:
+        orm_mode = True
 
-app = FastAPI()
-
-# class User(BaseModel):
-#     username: str = Field(..., pattern=r'^[a-zA-Z0-9_.-]+$')
-#     email: EmailStr
-#     age: int = Field(..., gt=0,lt=120)
-
-# @app.post("/register/")
-# async def user_reg(user: User):
-#     return user
-
-#<<<<------------  Handling Form Data and File Uploads in FastAPI---------------------->
-# -----------
-# @app.post("/login")
-# async def login(username:str=Form(...),password:str=Form(...)):
-#     return {"username":username,"message":"Login Successfull"}
-#<<<--------------- UploadFile------------------------>>
-# @app.post("/uploadfile/")
-# async def create_upload_file(file:UploadFile=File(...)):
-#     return {"filename":file.filename}
-
-#<<<<<<<<<<<<------------save uploaded file---------------->
-
-# @app.post("/uploadfile/")
-# async def upload_file(file:UploadFile=File(...)):
-  
-#     with open(f'uploads/{file.filename}', "wb") as f:
-
-#         f.write(await file.read())
-#     return{"message":f"{file.filename} saved successfully"}
-
-#<--------------------------------------Upload Multiple files------------------------->
-
-@app.post('/uploadfiles/')
-async def upload_files(files: List[UploadFile] = File(...)):
-    return {"filenames": [file.filename for file in files]}
-    
+# -------------------- Routes --------------------
+@app.post("/users/", response_model=UserOut)
+def create_user(user: UserCreate, db: Session = Depends(get_db)):
+    db_user = User(name=user.name, email=user.email)
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
